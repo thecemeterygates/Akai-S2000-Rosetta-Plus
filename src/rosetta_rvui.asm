@@ -9,7 +9,7 @@
 ; SAV (0.25): any value step writes the knobs to the boot floppy (src/rosetta_knobs.asm); OK / ERR stays until
 ; the cursor or page moves.
 ; DIV is LEN (ms, 10 ms a step) while BPM is FREE (one below the slowest tempo).
-RV_NP     equ 4
+RV_NP     equ 5
 K_NONE    equ 0
 K_TYPE    equ 1
 K_IN      equ 2                   ; menu-code words (MFX IN, FX FB)
@@ -519,3 +519,7 @@ rv_fields:
         FLD 8, K_NUM, lr_dry, 0, 99, "DRY "
         FLD 16, K_NUM, lr_sw, 0, 99, "SWL "
         FLD 24, K_SAV, 0, 0, 0, "SAV "
+        FLD 0, K_NUM, lf_bits, 4, 16, "BIT "    ; 0.28 (rosetta_plus.asm): LO-FI, MIDI clock
+        FLD 8, K_NUM, lf_sh, 1, 16, "S&H "
+        FLD 16, K_ONOFF, ck_on, 0, 1, "CLK "
+        FLD 24, K_ONOFF, ck_lfo, 0, 1, "LFO "

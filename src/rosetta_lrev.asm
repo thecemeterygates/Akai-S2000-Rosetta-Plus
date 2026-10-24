@@ -25,8 +25,9 @@
 ;   ping-pong each chunk on the other side; tone = the wet voice's own low-pass
 ;   start/end a loop inside the reversed chunk, like a sample's loop points: only START..END % plays, round and
 ;             round until the next chunk (each pass faded in / out)
-LR_HOFF   equ 0x4000              ; input history 4000:4000-DFFF (20480 words; LABBUF / SCANBUF overlap it, they
+LR_HOFF   equ 0x5000              ; input history 4000:5000-DFFF (0.28: 18432 words, was 4000-: the hi code grew; LABBUF / SCANBUF overlap it, they
 LR_HEND   equ 0xE000              ; are never used on the SAMPLE page)
+LR_CAP    equ LR_HEND - LR_HOFF   ; history bytes (N x the read factor in halves must fit LR_CAP x R)
 LR_BOFF   equ 0xE000              ; ch3 ring 4000:E000-FFFF = linear 4E000h
 LR_BLIN   equ (HI_SEG << 4) + LR_BOFF
 LR_D      equ 512                 ; frames our writes lead ch3 (11.6 ms; hw: passes ~5 ms apart, gaps up to 9.7 ms
@@ -75,6 +76,7 @@ lr_want:
         shl bx, 1
         shl bx, 1
         mov al, [cs:rev_tab + bx]
+        mov [cs:lr_kq], al        ; 0.28: 1 reverse, 2 forward (PITCH / SHIMMER), 3 crusher only (LO-FI)
 .n:     pop bx
         pop es
 .r:     ret
@@ -136,22 +138,22 @@ lr_len:
         xor cl, cl
         or dx, dx
         jnz .r2
-        cmp ax, 40960
+        cmp ax, LR_CAP
         jbe .rs
 .r2:    inc cl
-        cmp dx, 1
+        cmp dx, (2 * LR_CAP) >> 16
         ja .r4
         jb .rs
-        cmp ax, 0x4000
+        cmp ax, (2 * LR_CAP) & 0xFFFF
         jbe .rs
 .r4:    inc cl
-        cmp dx, 2
+        cmp dx, (4 * LR_CAP) >> 16
         ja .cut
         jb .rs
-        cmp ax, 0x8000
+        cmp ax, (4 * LR_CAP) & 0xFFFF
         jbe .rs
-.cut:   mov dx, 2
-        mov ax, 0x8000
+.cut:   mov dx, (4 * LR_CAP) >> 16
+        mov ax, (4 * LR_CAP) & 0xFFFF
         div bx
         and ax, 0xFFFE
         mov [cs:lr_nq], ax
@@ -406,14 +408,17 @@ lr_fill:
         mov si, RING
 .ly:    mov [cs:lr_si], si
         ; 2. R: the history backwards (DS = hi, DF = 1; every read wraps at the history start itself)
-        mov di, [cs:lr_wb]
+        cmp byte [cs:lr_kind], 3  ; LO-FI: no wet to read
+        jne .r0
+        jmp .hs
+.r0:    mov di, [cs:lr_wb]
         mov si, [cs:lr_rr]
         mov cx, [cs:lr_m]
         shl cx, 1
         push ds
         mov ax, cs
         mov ds, ax
-        std
+..@lr_pstd: std                      ; (cld reading forwards: lr_dir patches it, and the wraps below)
         mov al, [cs:lr_e]
         or al, al
         jz .e0
@@ -424,9 +429,9 @@ lr_fill:
         mov bx, [cs:lr_cur]
 .e1:    mov [es:di + 2], bx
         lodsw
-        cmp si, LR_HOFF - 2
+..@lr_pc1: cmp si, LR_HOFF - 2
         jne .e1a
-        mov si, LR_HEND - 2
+..@lr_pm1: mov si, LR_HEND - 2
 .e1a:   mov dx, ax
         sar ax, 1
         mov bp, bx
@@ -453,23 +458,23 @@ lr_fill:
         mov [cs:lr_cnt], bp
         jmp .rx
 .e0:    lodsw                     ; e = 0: a history sample a frame
-        cmp si, LR_HOFF - 2
+..@lr_pc2: cmp si, LR_HOFF - 2
         jne .e0a
-        mov si, LR_HEND - 2
+..@lr_pm2: mov si, LR_HEND - 2
 .e0a:   mov [es:di + 2], ax
         add di, 4
         loop .e0
         jmp .rx
 .em:    lodsw                     ; e = -1 (octave up at 44.1 kHz): two a frame, averaged
-        cmp si, LR_HOFF - 2
+..@lr_pc3: cmp si, LR_HOFF - 2
         jne .em1
-        mov si, LR_HEND - 2
+..@lr_pm3: mov si, LR_HEND - 2
 .em1:   sar ax, 1
         mov dx, ax
         lodsw
-        cmp si, LR_HOFF - 2
+..@lr_pc4: cmp si, LR_HOFF - 2
         jne .em2
-        mov si, LR_HEND - 2
+..@lr_pm4: mov si, LR_HEND - 2
 .em2:   sar ax, 1
         add ax, dx
         mov [es:di + 2], ax
@@ -508,7 +513,8 @@ lr_fill:
         sbb bx, 0
         loop .fl
         ; 4. history: no feedback = straight from the ADC ring; feedback = from our ring, L + FB x R
-.hs:    mov di, [cs:lr_hw]
+.hs:    call lf_run               ; 0.28: LO-FI on the frames just written (rosetta_plus.asm)
+        mov di, [cs:lr_hw]
         mov cx, [cs:lr_m]
         cmp word [cs:lr_fbg], 0
         jne .hfb
@@ -708,9 +714,9 @@ lr_hput:
 lr_next:
         mov bx, [cs:lr_nx]
         lodsw
-        cmp si, LR_HOFF - 2
+..@lr_pc5: cmp si, LR_HOFF - 2
         jne .a
-        mov si, LR_HEND - 2
+..@lr_pm5: mov si, LR_HEND - 2
 .a:     mov [cs:lr_nx], ax
         sar ax, 1
         mov dx, bx
@@ -729,6 +735,12 @@ lr_next:
 ; from its newest sample
 lr_chunk:
         mov word [cs:lr_j], 0
+        mov al, [cs:lr_kq]
+        cmp al, [cs:lr_kind]
+        je .kd
+        mov [cs:lr_kind], al
+        call lr_dir
+.kd:
         mov al, [cs:lr_rlq]
         mov [cs:lr_rl], al
         mov al, [cs:lr_eq]
@@ -840,6 +852,9 @@ lr_chunk:
 .s3:    shl ax, 1                 ; e = -1: two a frame
 .s4:    shl ax, 1
         mov [cs:lr_soff], ax
+        mov ax, [cs:lr_n]         ; 0.28: forwards, the slice starts this far back (history bytes per chunk)
+        call lr_frb
+        mov [cs:lr_span], ax
         jmp lr_slice
 .rate:  mov cx, ax                ; ax = frames -> the envelope rate to go 0 <-> LR_ELVL in them (8.8 a sample),
         mov dx, LR_ELVL >> 8      ; LR_ESTEP at most
@@ -853,8 +868,16 @@ lr_chunk:
 ; the next pass of the slice: from START (lr_soff before the chunk's newest sample), reader set up afresh
 lr_slice:
         mov word [cs:lr_js], 0
-        mov ax, [cs:lr_nw]
-        sub ax, [cs:lr_soff]
+        mov dx, [cs:lr_soff]
+        cmp byte [cs:lr_kind], 2
+        jne .bk
+        mov dx, [cs:lr_span]      ; forwards: START % in from the oldest sample a chunk reads
+        sub dx, [cs:lr_soff]
+        sub dx, 2
+        jnc .bk
+        xor dx, dx
+.bk:    mov ax, [cs:lr_nw]
+        sub ax, dx
         jc .w
         cmp ax, LR_HOFF
         jae .k
@@ -866,7 +889,7 @@ lr_slice:
         mov bx, ax                ; e = 1: it is the current sample
         mov bx, [cs:bx]
         mov [cs:lr_cur], bx
-        call lr_back
+        call lr_adv
         mov [cs:lr_rr], ax
         ret
 .g:     mov bx, ax                ; e >= 2: it is the first 'next'; the reader starts on it at once
@@ -875,7 +898,7 @@ lr_slice:
         mov [cs:lr_out], bx
         mov word [cs:lr_dst], 0
         mov word [cs:lr_cnt], 1
-        call lr_back
+        call lr_adv
         mov [cs:lr_rr], ax
         mov cl, [cs:lr_e]
         mov ax, 1
@@ -889,6 +912,54 @@ lr_back:                      ; ax = the history sample before ax (wraps)
         jae .r
         mov ax, LR_HEND - 2
 .r:     ret
+
+; 0.28: ax = the next history sample after ax in the reading direction (wraps)
+lr_adv: cmp byte [cs:lr_kind], 2
+        jne lr_back
+        add ax, 2
+        cmp ax, LR_HEND
+        jb .r
+        mov ax, LR_HOFF
+.r:     ret
+
+; ax = frames -> history bytes they read (2^-e samples a frame)
+lr_frb: mov cl, [cs:lr_e]
+        or cl, cl
+        js .m
+        shr ax, cl
+        jmp .s
+.m:     shl ax, 1
+.s:     shl ax, 1
+        ret
+
+; the readers' direction for lr_kind (2 = forwards): the std and the five wrap tests are patched in place
+lr_dir: push si
+        push bx
+        push di
+        mov al, 0xFD              ; std
+        mov bx, LR_HOFF - 2       ; backwards: wrap below the start to the last sample
+        mov dx, LR_HEND - 2
+        cmp byte [cs:lr_kind], 2
+        jne .p
+        dec ax                    ; cld
+        mov bx, LR_HEND           ; forwards: past the end to the first
+        mov dx, LR_HOFF
+.p:     mov [cs:..@lr_pstd], al
+        mov si, lr_ptab
+.l:     mov di, [cs:si]
+        or di, di
+        jz .x
+        mov [cs:di + 2], bx       ; cmp si, imm16 (81 FE iw)
+        mov di, [cs:si + 2]
+        mov [cs:di + 1], dx       ; mov si, imm16 (BE iw)
+        add si, 4
+        jmp .l
+.x:     pop di
+        pop bx
+        pop si
+        ret
+lr_ptab:  dw ..@lr_pc1, ..@lr_pm1, ..@lr_pc2, ..@lr_pm2, ..@lr_pc3, ..@lr_pm3, ..@lr_pc4, ..@lr_pm4
+          dw ..@lr_pc5, ..@lr_pm5, 0
 
 ; dx = frames to the end of what plays now: the slice or the chunk, whichever ends first
 lr_toend:
@@ -917,9 +988,16 @@ lr_comp:  db 0                ; comp 0-99
 lr_st:    db 3                ; (boot 3) start 0-99 (% into the reversed chunk)
 lr_dry:   db 99               ; the dry input's level 0-99 (99 = stock)
 lr_en:    db 75               ; (boot 75) end 0-99 (last %)
+lf_bits:  db 16               ; 0.28 LO-FI: bits 4-16 (16 = clean)
+lf_sh:    db 1                ; ... sample-and-hold: 1 frame in 1..16 kept (1 = clean)
+ck_on:    db 0                ; ... MIDI clock sync (rosetta_plus.asm)
+ck_lfo:   db 0                ; ... and the FX LFOs locked to it
 lr_divm:  db 4, 8, 12, 16, 24 ; in sixteenths
 
 lr_act:   db 0
+lr_kq:    db 1                ; 0.28: the FX type's kind (rev_tab byte 0), taken at the next chunk ...
+lr_kind:  db 1                ; ... in use (1 reverse: the readers as assembled)
+lr_span:  dw 0
 lr_rl:    db 0                ; history rate in use: 44.1 kHz >> lr_rl
 lr_rlq:   db 0                ; ... wanted (taken at the next chunk), likewise lr_e / lr_n
 lr_e:     db 0                ; read step 2^-e

@@ -42,6 +42,17 @@ def mod(fne, fno, route, gain, center_ms, depth_ms, rate_hz, phase_deg=0, off=0)
                 inc=int(round(65536 * rate_hz / TICK_HZ)), phase=int(phase_deg / 360 * 65536) & 0xFFFF)
 
 
+def saw(fne, fno, route, gain, center, depth, inc, phase):
+    """0.28 pitch-shift slot (lo lfo_run, route bit 7): the delay ramps center - depth .. center + depth over a
+    lap of the phase (a sawtooth, not a sine) and the gain follows a sin^2 window that is 0 at the wrap, so the
+    jump back is silent; two slots half a lap apart sum to a steady level. Pitch ratio = 1 - 2 depth inc /
+    (65536 x samples a tick): depth < 0 = the delay shrinks = sharp. center / depth in samples, inc a tick
+    (the OS tick: 0.511 ms = 22.5 samples)."""
+    assert center - abs(depth) >= 2 and center + abs(depth) + 1 < 65535
+    return dict(fne=fne, fno=fno, route=route, gain=gain, center=center, depth=depth, inc=inc,
+                phase=phase & 0xFFFF, saw=True)
+
+
 def from_json(name):
     taps = json.load(open(os.path.join(FXDIR, name + ".json")))
     assert len(taps) <= 30
@@ -65,7 +76,18 @@ def bank():
                          mod(5, 6, FB, 0.55, 2.6, 2.2, 0.2, 0)]),
     ] + sp404()
     hall = from_json("hall")
-    return [p + (None,) for p in stock] + [
+    # 0.28: d = 220 samples, inc 16 -> 2 x 220 x 16 / (65536 x 22.535) = 0.48 % = 8 cents, a 2.1 s lap
+    det = [saw(1, 2, L, 0.7, 240, -220, 16, 0), saw(3, 4, L, 0.7, 240, -220, 16, 0x8000),
+           saw(5, 6, R, 0.7, 240, 220, 16, 0x4000), saw(7, 8, R, 0.7, 240, 220, 16, 0xC000)]
+    LP = 32768                                    # LOOPER: 0.74 s at TIME 100 (25-200 %: 0.19-1.49 s)
+    loop = [(1, 0.9, L, LP), (2, 0.9, R, LP), (3, 0.99997, FB, LP)]
+    extra = [("DETUNE", [], det, None),           # micro pitch shift: L +8 cents, R -8 (TIME / RATE = more)
+             ("LOOPER", loop, [], None),          # FB 99 = a slow fade, FB 100 = FREEZE (sends cut, gain 1.0)
+             # live input only (SAMPLE page), the live-reverse engine reading forwards (kind 2) / crusher only (3)
+             ("PITCH", [], [], (34, None, 0, 2)),
+             ("SHIMMER", hall, [], (34, None, 0, 2)),
+             ("LO-FI", [], [], (34, None, 0, 3))]
+    return [p + (None,) for p in stock] + extra + [
         # reverse delays: each chunk of the delay line plays back flipped (TIME scales the chunk). One REVERSE
         # since 0.24 (the user: SHRT / LONG / ECHO / OCT / PING are its knobs now: length, FB, OCT, PING on the
         # MFX REV menu, src/rosetta_rvui.asm) + REV HALL
@@ -106,27 +128,36 @@ def nasm(presets):
            "rev_tab:"]
     for name, static, mods, rev in presets:
         if rev:
-            out.append(f"        db 1, {rev[0]}, {1 if rev[1] else 0}, {rev[2]}   ; {name}")
+            kind = rev[3] if len(rev) > 3 else 1
+            out.append(f"        db {kind}, {rev[0]}, {1 if rev[1] else 0}, {rev[2]}   ; {name}")
         else:
             out.append(f"        db 0, 0, 0, 0             ; {name}")
+    for i, (name, *_) in enumerate(presets):           # 0.28: FXI_<name> = its index (the hi code)
+        out.append(f"FXI_{''.join(c if c.isalnum() else '_' for c in name)} equ {i}")
     out.append("preset_ptrs:")
     out += [f"        dw fxp{i} + LOREL" for i in range(len(presets))]
     for i, (name, static, mods, rev) in enumerate(presets):
         assert len(name) <= 8, name
+        assert not (rev and len(rev) > 3 and rev[3] != 1 and mods), name   # (kind 2 / 3 run no LFO slots)
         used = [fn for fn, *_ in static] + [f for m in mods for f in (m["fne"], m["fno"])]
         assert len(used) == len(set(used)) and all(f in FNS for f in used), name
         assert len(mods) <= 4
         fbm = rev[1] if rev and rev[1] else fbmax(static, mods)   # REV ECHO: FEEDBACK = reverse repeats
+        if name == "LOOPER":
+            fbm = 100                                 # 100 = FREEZE (hi code)
+        if rev and len(rev) > 3:
+            fbm = 99                                  # PITCH / SHIMMER / LO-FI: FB = the input history's feedback
         out.append(f"fxp{i}:   db '{name:<8}', {fbm}, {len(static)}, {len(mods)}")
         for fn, g, r, d in static:
             assert 2 <= d <= 65535
             out.append(f"        db {fn}\n        dw {gw(g, r):#06x}, {d}")
         for m in mods:
             q = int(round(m["gain"] * 32767))
-            out.append(f"        db {m['fne']}, {m['fno']}, {3 if m['route'] == FB else m['route']}")
+            out.append(f"        db {m['fne']}, {m['fno']}, {(3 if m['route'] == FB else m['route']) | (0x80 if m.get('saw') else 0)}")
             out.append(f"        dw {q & 0xFFFF:#06x}, {m['center']}, {m['depth']}, {m['inc']}, {m['phase']:#06x}")
     short = {"PINGPONG": "PING", "CHORUS": "CHORS", "FLANGER": "FLANG", "REVERSE": "REV", "REV SHRT": "RVSHT",
-             "REV LONG": "RVLNG", "REV ECHO": "RVECH", "REV OCT": "RVOCT", "REV HALL": "RVHAL", "REV PING": "RVPNG"}
+             "REV LONG": "RVLNG", "REV ECHO": "RVECH", "REV OCT": "RVOCT", "REV HALL": "RVHAL", "REV PING": "RVPNG",
+             "DETUNE": "DETUN", "LOOPER": "LOOP", "SHIMMER": "SHIMR"}
     out.append("fx_short:                      ; 5-char names for HOME line 2")
     for name, *_ in presets:
         sn = short.get(name, name)[:5]

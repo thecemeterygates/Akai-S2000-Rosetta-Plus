@@ -47,6 +47,11 @@ there's space to build much more. Nothing touches ROM or flash: boot your stock 
 | **Sampling screen**: REC opens on the input meter with `SETUP        ARM` (stock hides it behind GROUP); a finished take lands on the sample select page | ✅ on hardware (0.16) |
 | **REC = start/stop**: armed, hold REC to record while held, or tap to start and tap again to stop | ✅ on hardware (0.21) |
 | **+64 KB code space**: the boot ROM only loads 256 KB, so Rosetta reads its extra code from the boot floppy into unused CPU RAM (0x40000) right after boot | ✅ on hardware (0.19) |
+| **0.28 CHOP** (MULTI → `< CHOP > GO`): slice the current sample into new samples + a program, one slice a key from C3: EQUAL (2-64), TRANS (transients, sens 1-9), LAZY (play it, tap F2 on the hits). Cuts snap to zero crossings | emulator ✅ (0.28) |
+| **0.28 LOOPER** FX type: a 0.19-1.49 s loop on the delay line, FB 99 = slow fade, **FB 100 or CC 30 = FREEZE** (feedback 1.0, every send into it cut) | emulator ✅ (registers) |
+| **0.28 MIDI clock**: CLK (REV menu page 5, or CC 31) locks the live reverse's BPM and the echo types' taps (ECHO, PINGPONG, DUB, LOOPER) to F8 clock; LFO locks the FX LFOs to the bar | emulator ✅ (registers) |
+| **0.28 PITCH / SHIMMER** (live input): the live-reverse engine reading forwards, octave up / down, FB = cascades; SHIMMER feeds the hall. **DETUNE**: ±8 cent micro pitch shift (sawtooth taps) on everything | harness ✅ (asm on a CPU model); DETUNE uses moving taps: may crackle like CHORUS |
+| **0.28 LO-FI**: BIT 4-16 and S&H ÷1-16 on the live input (any REV / PITCH type, or LO-FI alone) | harness ✅ |
 | **SYNTH on MIDI CC 20-25**: per-voice analog drift, detune spread, filter LFO with phase spread. All 0 = exactly stock | ✅ on hardware, measured over MIDI + audio (0.21) |
 | **Hot reload**: send a new build of the extra code into a running S2000 over MIDI (no reboot, no floppy) | ✅ on hardware |
 | **PLAY always plays**: with no program active, PLAY and MIDI notes audition the current sample | ✅ on hardware |
@@ -200,6 +205,28 @@ The menu code (`src/rosetta_menu.asm` and friends, 5.6 KB) is full, so new featu
 - `tools/stick.py`: writes a build to the Gotek stick (checks for `FF.CFG`), keeping the knobs saved on it.
 - `docs/FINDINGS.md`: the lab notebook (hardware map, code map, sound engine, build history).
 - `docs/menu_design.md`: the menu redesign plan. `docs/pagewalk.txt`, `docs/ui_tree.txt`: stock UI maps.
+
+## Rosetta+ 0.28 (MIDI clock, LOOPER, PITCH / SHIMMER, LO-FI, CHOP)
+
+All new code is hi code (src/rosetta_plus.asm, src/rosetta_chop.asm, plus small changes in rosetta_lrev.asm and
+the lo FX engine). The hi code may now be 20 KB: the live-reverse history starts at 0x45000 (18432 words, was
+20480: the longest chunks are ~10 % shorter).
+
+- **MIDI clock**: the OS's MIDI ISR puts every byte, F8 included, into its ring at 0:0300; the hi tick reads it
+  behind the parser (nothing consumed, no hook) and times 96 clocks (a bar) on the OS tick, smoothed. Taps are
+  only rewritten when the tempo moves > 0.4 % or the page changes TIME / FB / RATE / type.
+- **LOOPER / FREEZE**: preset taps at T with an FB tap of 0.99997 x FB %. FREEZE sets fxsendv = 0 (note-ons send
+  nothing), zeroes every sounding voice's send (reg 7 word 1) and the input monitor's, FB tap = 7FFFh.
+- **Saw LFO slots** (lo lfo_run, route bit 7): the delay ramps instead of swinging, the gain follows sin² of the
+  phase (0 at the wrap), two slots half a lap apart. Pitch ratio = 1 - 2 depth inc / (65536 x 22.535).
+- **PITCH / SHIMMER**: rev_tab kind 2 = the live-reverse readers going forwards: the `std` and the five wrap tests
+  are patched in place at a chunk boundary (lr_dir), the slice starts a chunk's worth of history back. Kind 3 =
+  LO-FI: no reader, no wet. Crusher (lf_run) on the frames just written, before the history takes them.
+- **CHOP**: from the s2k CFW (headers via 2345:151A / 1535, sample RAM via 2345:1AA0 / 1AC8, catalogue rebuild
+  0FE4:22F3). LAZY auditions with the OS's PLAY (0FE4:034F) under MODE 5, so the sample page's audition runs.
+  Work RAM 4A00:0000-36FF (inside the live-reverse history: CHOP only runs on MULTI).
+- Tests: tools/plus/ (rtest.py: the hi / lo binaries on a CPU model with simulated DMA; choptest.py: the full
+  OS in the s2k emulator).
 
 ## Walls we hit
 

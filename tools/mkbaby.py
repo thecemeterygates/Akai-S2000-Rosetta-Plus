@@ -214,7 +214,7 @@ def build_hi(build_dir):
     with open(pre, "w") as f:
         f.write("[map symbols " + os.path.join(build_dir, "rosetta_hi.map") + "]" + chr(10))
     blob = nasm_blob(build_dir, "rosetta_hi.asm", [f"-DHI_VERSION={vw}", f"-DHI_BLOCK={HI_BLOCK}", "-P", pre])
-    assert blob[:4] == b"RSHI" and len(blob) <= 0x4000, "hi code must stay below 0x44000 (live reverse history + LABBUF, src/rosetta_lrev.asm)"
+    assert blob[:4] == b"RSHI" and len(blob) <= 0x5000, "hi code must stay below 0x45000 (0.28: live reverse history from there, src/rosetta_lrev.asm)"
     return blob + bytes(-len(blob) % 1024)
 
 
@@ -269,6 +269,8 @@ def main():
     osb[lo:lo + len(blob)] = blob
     print(f"  {lo:#07x}  dragon blob {len(blob)} B (DRAGON_SEG {DRAGON_SEG:04x}:0000)")
     menu = build_menu(os.path.dirname(os.path.abspath(prefix)))
+    syms = dict(l.split(" equ ") for l in open(os.path.join(os.path.dirname(os.path.abspath(prefix)), "lo_syms.inc")).read().split(chr(10)) if " equ " in l)
+    assert menu[int(syms["LO_lfo_run"], 16) - 1] == 0xCB, "RETF_LO (rosetta_plus.asm): lfo_hook must end in retf"
     lo = lin(MENU_SEG, 0)
     osb[lo:lo + len(menu)] = menu
     print(f"  {lo:#07x}  menu blob {len(menu)} B (MENU_SEG {MENU_SEG:04x}:0000)")
@@ -295,7 +297,8 @@ def main():
     open(prefix + ".bin", "wb").write(osb)
     open(prefix + ".img", "wb").write(disk)
     hfe = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hfe.py")
-    subprocess.run([sys.executable, "-I", hfe, "write", template, prefix + ".img", prefix + ".hfe"], check=True)
+    if template != "-":
+        subprocess.run([sys.executable, "-I", hfe, "write", template, prefix + ".img", prefix + ".hfe"], check=True)
 
 
 if __name__ == "__main__":

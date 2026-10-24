@@ -6,7 +6,7 @@
 ; program (every program with the selected number, every keygroup): wave (ROSETTA ROM programs), filter, envelopes,
 ; the SYNTH layer's drift / detune / LFO. Keys as the REV menu: F1 / F2 knob, wheel / GROUP value, PAGE page,
 ; rocker = knob (half) / page (full), home = back to the mode menu, then HOME.
-SY_NM     equ 3                   ; modes
+SY_NM     equ 4                   ; modes
 KG_CUT    equ 7                   ; keygroup bytes in RAM (S1000 layout first; mapped in the emulator by nudging the
 KG_KEY    equ 8                   ; stock EDIT pages and diffing, 2026-10-15)
 KG_E2F    equ 11                  ; (S1000 ENV2>FILTER: the S2000 ignores it, see KG_FM3)
@@ -107,7 +107,10 @@ sy_key: cmp byte [cs:sy_lvl], 0
         mov byte [cs:sy_page], 0
         mov byte [cs:sy_cur], 0
         ret
-.pg:    cmp byte [cs:sy_mode], 0  ; FAKE FM / WAVETABLE: nothing yet
+.pg:    cmp byte [cs:sy_mode], 1  ; CHOP: its own keys
+        jne .pg0
+        jmp ch_key
+.pg0:   cmp byte [cs:sy_mode], 0  ; FAKE FM / WAVETABLE: nothing yet
         jne .r
         cmp al, 0
         je .left
@@ -173,7 +176,10 @@ sy_mstep:
 sy_step:
         cmp byte [cs:sy_lvl], 0
         je sy_mstep
-        cmp byte [cs:sy_mode], 0
+        cmp byte [cs:sy_mode], 1
+        jne .s0
+        jmp ch_step
+.s0:    cmp byte [cs:sy_mode], 0
         jne .r
         mov dl, al
         call sy_fld
@@ -500,6 +506,11 @@ sy_draw:
         jmp .r
 .pages: cmp byte [cs:sy_mode], 0
         je .an
+        cmp byte [cs:sy_mode], 1
+        jne .soon
+        call ch_draw
+        jmp .r
+.soon:
         mov di, LO_fxbuf          ; FAKE FM / WAVETABLE: soon
         mov al, [cs:sy_mode]
         mov ah, 8
@@ -638,7 +649,7 @@ sy_page:  db 0
 sy_cur:   db 0
 sy_tmp:   db 0
 sy_val:   db 0
-sy_mnames: db "ANALOG  FAKE FM WAVETBL "
+sy_mnames: db "ANALOG  CHOP    FAKE FM WAVETBL "   ; (0.28: CHOP, src/rosetta_chop.asm)
 sy_soon:  db "COMING NEXT     "
 sy_nopr:  db "NO PROGRAM"
 sy_wnames: db "SAWSQRPLSTRISIN"

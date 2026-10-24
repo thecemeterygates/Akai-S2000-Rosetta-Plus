@@ -233,9 +233,9 @@ fx_settype:
         mov word [cs:ptime], 100
         mov word [cs:prate], 100
         call fbmax
-        cmp ax, 100
+        cmp ax, 99
         jbe .f
-        mov ax, 100
+        mov ax, 99            ; (0.28: 99: LOOPER's FB 100 = FREEZE)
 .f:     mov [cs:pfb], ax
         mov byte [cs:keepph], 0
         call setsend
@@ -527,6 +527,8 @@ M_CENTER  equ 5
 M_DEPTH   equ 7
 M_INC     equ 9
 M_PHASE   equ 11
+M_SAW     equ 13              ; 0.28: 80h = a pitch-shift slot (sawtooth delay, sin^2 window on the gain)
+M_EG      equ 14              ; the gain this pass (x the window on a saw slot)
 MDEF      equ 13
 MSLOT     equ 16
 P_NAME    equ 0               ; preset record: name[8], fbmax, nstatic, nmod, taps (5 B), slots (MDEF B)
@@ -637,10 +639,13 @@ fx_apply:
         push cx
         mov ax, [cs:si]       ; fnE, fnO
         mov [cs:di + M_FNE], ax
-        mov al, [cs:si + 2]
+        mov al, [cs:si + 2]   ; route (bit 7: a saw slot)
+        mov ah, al
+        and ax, 0x8003
         mov [cs:di + M_ROUTE], al
+        mov [cs:di + M_SAW], ah
         mov ax, [cs:si + 3]   ; gain (* FB on feedback slots)
-        cmp byte [cs:si + 2], 3
+        cmp byte [cs:di + M_ROUTE], 3
         jne .mg
         mov bx, [cs:pfb]
         call scales
@@ -649,9 +654,9 @@ fx_apply:
         mov bx, [cs:ptime]
         call scaleu
         mov [cs:di + M_CENTER], ax
-        mov ax, [cs:si + 7]
+        mov ax, [cs:si + 7]   ; (signed: a saw's depth < 0 = sharp)
         mov bx, [cs:ptime]
-        call scaleu
+        call scales
         mov [cs:di + M_DEPTH], ax
         mov ax, [cs:si + 9]   ; phase increment * RATE
         mov bx, [cs:prate]
@@ -715,12 +720,29 @@ lfo_run:
         mov bl, [cs:si + M_PHASE + 1]
         xor bh, bh
         shl bx, 1
-        push si
-        mov si, [cs:fxhdr]
-        mov si, [cs:si + 4]
-        mov ax, [cs:si + bx]        ; sintab (in the FX bank)
-        pop si
-        imul word [cs:si + M_DEPTH] ; dx:ax = sin (Q14) * depth (samples)
+        mov di, [cs:fxhdr]
+        mov di, [cs:di + 4]         ; sintab (in the FX bank)
+        mov ax, [cs:si + M_GAIN]
+        cmp byte [cs:si + M_SAW], 0
+        jne .saw
+        mov [cs:si + M_EG], ax
+        mov ax, [cs:di + bx]
+        jmp .sv
+.saw:   add bx, 128                 ; saw slot: gain x sin^2(pi phase) = (1 - cos(2 pi phase)) / 2
+        and bx, 511
+        mov ax, 16384
+        sub ax, [cs:di + bx]
+        shr ax, 1
+        imul word [cs:si + M_GAIN]
+        shl ax, 1
+        rcl dx, 1
+        shl ax, 1
+        rcl dx, 1
+        mov [cs:si + M_EG], dx
+        mov ax, [cs:si + M_PHASE]   ; delay ramp: (phase - 8000h) / 2 = Q14 -1 .. +1
+        xor ah, 0x80
+        sar ax, 1
+.sv:    imul word [cs:si + M_DEPTH] ; dx:ax = sin (Q14) * depth (samples)
         mov bx, ax
         shr bx, 6
         and bx, 0xFF                ; f = 1/256 sample
@@ -731,14 +753,14 @@ lfo_run:
         push dx
         mov ax, 256
         sub ax, bx
-        imul word [cs:si + M_GAIN]
+        imul word [cs:si + M_EG]
         mov al, ah
         mov ah, dl
         and al, 0xFC
         or al, [cs:si + M_ROUTE]
         mov di, ax                  ; gain word at delay n
         mov ax, bx
-        imul word [cs:si + M_GAIN]
+        imul word [cs:si + M_EG]
         mov al, ah
         mov ah, dl
         and al, 0xFC

@@ -215,7 +215,12 @@ hi_tick:
         mov byte [cs:inited], 1   ; sent in over SysEx: hook the OS ourselves
         call apply
         call hi_setup
-.go:    call rv_fbsync
+.go:    cmp byte [cs:ch_busy], 0  ; 0.28: CHOP is building (the OS's busy loop may come back here): idle
+        je .go1
+        jmp .out
+.go1:   call ch_tick          ; CHOP's lazy capture
+        call rv_fbsync
+        call plus_tick        ; 0.28: MIDI clock, LOOPER freeze (rosetta_plus.asm)
         call sy_fixrs         ; ROSETTA ROM programs: the filter env as the S2000 wants it
         inc word [cs:npass]       ; lab: passes + the longest gap in OS ticks (how often the FX LFO runs)
         call 0x2345:0x0A47
@@ -551,6 +556,7 @@ mfx_run:
         mov al, 0x0F
 .w:     pop es
         mov bx, ax
+        call fz_in            ; 0.28: frozen LOOPER: no input into it
         cmp byte [cs:lr_act], 0
         jne .lr
         xor cx, cx            ; 17h (R) only in stereo: in mono its 128-sample ring is never written and it
@@ -591,7 +597,10 @@ mfx_run:
         jmp .lb
 .rg:    xor ah, ah
 .lb:    mov cx, ax
-        mov al, [cs:lr_tone]      ; tone: the wet voice's low-pass target, 2000h dark .. 7FF0h open (reg 6
+        cmp byte [cs:lr_kind], 3  ; 0.28 LO-FI: the dry only
+        jne .lk
+        xor cx, cx
+.lk:    mov al, [cs:lr_tone]      ; tone: the wet voice's low-pass target, 2000h dark .. 7FF0h open (reg 6
         xor ah, ah                ; word 1, as the OS writes it at 2345:5746; the template has 7FF0h)
         mov dx, 0x5FF0
         mul dx
@@ -704,6 +713,8 @@ msg_ok:   db "ROSETTA+ READY  SYNTH CC 20-25  "
 msg_pf:   db "ROSETTA+ READY  PATCH MISMATCH! "
 
 %include "rosetta_rev.asm"
+%include "rosetta_plus.asm"
+%include "rosetta_chop.asm"
 %include "rosetta_lrev.asm"
 %include "rosetta_rvui.asm"
 %include "rosetta_knobs.asm"

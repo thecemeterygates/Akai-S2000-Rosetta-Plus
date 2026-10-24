@@ -81,7 +81,10 @@ rev_params:
         shl bx, 1
         shl bx, 1
         mov al, [cs:rev_tab + bx]
-        mov [cs:rp_on], al
+        cmp al, 1                 ; 0.28: kinds 2 / 3 (PITCH, SHIMMER, LO-FI) are the live input's only
+        jbe .k1
+        xor al, al
+.k1:    mov [cs:rp_on], al
         or al, al
         jz .pd
         mov word [cs:rp_lvl], 100 << 7

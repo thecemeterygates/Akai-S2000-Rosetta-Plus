@@ -9,7 +9,7 @@
 HI_BLOCK  equ 273                 ; set by mkbaby.py
 %endif
 KN_BLOCK  equ HI_BLOCK + (kn_blk - $$) / 1024
-KN_NB     equ lr_en + 1 - lr_bpm  ; lr_bpm .. lr_en: one run of bytes in rosetta_lrev.asm
+KN_NB     equ ck_lfo + 1 - lr_bpm ; lr_bpm .. ck_lfo (0.28): one run of bytes in rosetta_lrev.asm
 KO_N      equ 4                   ; block: "RKNB", KN_NB, 0, REV FB (w), MFX IN (w), the knob bytes
 KO_FB     equ 6
 KO_IN     equ 8
