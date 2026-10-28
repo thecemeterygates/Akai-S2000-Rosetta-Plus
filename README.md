@@ -2,6 +2,57 @@
 
 <p align="center"><a href="https://discord.gg/R3CQkFdRtf"><img src="https://img.shields.io/badge/Discord-join%20the%20server-5865F2?logo=discord&logoColor=white" alt="Join the Discord"></a></p>
 
+# Rosetta+ for the Akai S2000 (a fork of Rosetta OS)
+
+> ⚠️ **Not fully tested on hardware.** Rosetta+ 0.28 boots on a real S2000, but the new features below have only
+> been tested in an emulator and on a CPU model of the code. Expect bugs. Nothing is written to ROM or flash: if
+> anything goes wrong, power off and boot your stock OS disk. Reports welcome in this repo's Issues.
+
+This is a fork of [Rosetta OS](https://github.com/yuyoi/Akai-S2000-Rosetta-OS) by JunkSmithWizard (JSW) and
+Claude. Everything Rosetta 0.27 does is still here, plus:
+
+| New in Rosetta+ 0.28 | How to use it | Tested |
+|---|---|---|
+| **CHOP**: slice a sample into new samples + a ready-to-play program, one slice a key from C3 | MULTI → wheel to `< CHOP >` → F2. Modes EQUAL (2-64 slices), TRANS (at the hits, sens 1-9), LAZY (tap F2 along while it plays). F2 on GO twice builds | emulator |
+| **LOOPER / FREEZE**: a loop of up to 1.49 s on the delay engine | EFFECTS → type LOOPER. TIME = length, FB 99 = slow fade, **FB 100 or CC 30 = FREEZE** | emulator (registers) |
+| **MIDI clock sync** for the live reverse BPM, echo times (ECHO, PINGPONG, DUB, LOOPER) and FX LFOs | REV menu page 5: CLK ON (or CC 31), LFO ON | CPU model + emulator |
+| **PITCH / SHIMMER** on the live input (octave up / down, feedback cascades; SHIMMER = into the hall) | SAMPLE page → EFFECTS → type PITCH or SHIMMER; OCT, FB, LEN, SWL on the REV menu | CPU model |
+| **DETUNE**: ±8 cent micro pitch shift on everything | EFFECTS → type DETUNE (TIME / RATE = more). May crackle like CHORUS (open issue below) | CPU model |
+| **LO-FI**: bit depth 4-16 and sample-and-hold ÷1-16 on the live input | REV menu page 5: BIT, S&H (or type LO-FI on its own) | CPU model |
+
+Details of how each works: [Rosetta+ 0.28](#rosetta-028-midi-clock-looper-pitch--shimmer-lo-fi-chop) further down.
+
+## Install Rosetta+
+
+No disk images are published here: they would contain Akai's OS. You build the boot disk from **your own** S2000
+OS 2.0 disk (about five minutes):
+
+1. Install **Python 3.10+** with numpy, and **[NASM](https://www.nasm.us/)** (on PATH, or set `$NASM`).
+2. Clone this repo, and clone [AKAI-CD-ISO-MAKER](https://github.com/yuyoi/AKAI-CD-ISO-MAKER) next to it (for the
+   test kit on the disk; or set `TESTKIT=0`).
+3. Get your OS disk as a raw 1.6 MB `.img` (Gotek users: the image already on your stick), or convert a Teledisk
+   `.td0` with `python tools/td0.py s2kos2.td0 build/s2kos2.img`.
+   The disk must hold **only the OS**: if the build stops with `block 273 in use`, delete the samples on it first
+   (save a copy of the OS disk with nothing else on it from the S2000, or use a clean OS image).
+4. Build:
+   ```bash
+   mkdir -p build        # (put your OS image there as build/s2kos2.img)
+   AKAITOOL=../AKAI-CD-ISO-MAKER python -I tools/mkbaby.py build/s2kos2.img - build/S2K_ROSETTA
+   ```
+   This makes `build/S2K_ROSETTA.img` (the `-` = no HFE; pass an HFE template instead to also get a `.hfe`).
+5. **Gotek (FlashFloppy)**: copy `S2K_ROSETTA.img` to the USB stick next to your stock OS image, named so it sorts
+   after it (e.g. stock = `00_S2000_OS.img`, Rosetta+ = `01_ROSETTA_PLUS.img`). In `FF.CFG` set
+   `image-on-startup = last` so the Gotek remembers the slot.
+6. **Boot**: a Gotek inside the S2000 only gets power with the sampler, so power on (stock OS boots), select the
+   Rosetta+ slot on the Gotek, power off, power on again. Leave the slot selected until the home screen shows
+   **ROSETTA 0.28**: the extra code is read from the disk just after boot. After that you can switch disks to load
+   samples (the REV menu's SAV writes to the boot disk, so only use it with Rosetta+ selected).
+7. **Back to stock**: select the stock slot and power-cycle.
+
+The hardware test plan for the new features is in [docs/rosetta_plus_tests.md](docs/rosetta_plus_tests.md).
+
+---
+
 # Akai S2000 Rosetta OS  (WIP)
 
 **New tricks for the Akai S2000 sampler.** Rosetta OS is a patch kit for the stock **OS 2.0**: you build a boot
