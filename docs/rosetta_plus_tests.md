@@ -3,7 +3,7 @@
 Not yet tested on hardware beyond booting. Please report what you hear (an Issue per feature is ideal).
 
 ## Tests
-1. **Boot**: check for the `ROSETTA+ READY` popup and that HOME shows `ROSETTA 0.28`. Check that stock Rosetta things
+1. **Boot**: check for the `ROSETTA+ READY` popup and that the ROSETTA ROM programs (RS SAW … RS PLUCK) load. Check that stock Rosetta things
    still work: HALL, ECHO, live REVERSE.
 2. **CHOP EQUAL**: select a drum loop on the sample page, then MULTI → CHOP → GO → F2 F2 F2. Play C3 upwards. Does
    each key play one slice, cleanly?

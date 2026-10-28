@@ -9,7 +9,7 @@
 > anything goes wrong, power off and boot your stock OS disk. Reports welcome in this repo's Issues.
 
 This is a fork of [Rosetta OS](https://github.com/yuyoi/Akai-S2000-Rosetta-OS) by JunkSmithWizard (JSW) and
-Claude. Everything Rosetta 0.27 does is still here, plus:
+Claude. Based on Rosetta 0.28: everything it does is still here, plus:
 
 | New in Rosetta+ 0.28 | How to use it | Tested |
 |---|---|---|
@@ -44,8 +44,9 @@ OS 2.0 disk (about five minutes):
    after it (e.g. stock = `00_S2000_OS.img`, Rosetta+ = `01_ROSETTA_PLUS.img`). In `FF.CFG` set
    `image-on-startup = last` so the Gotek remembers the slot.
 6. **Boot**: a Gotek inside the S2000 only gets power with the sampler, so power on (stock OS boots), select the
-   Rosetta+ slot on the Gotek, power off, power on again. Leave the slot selected until the home screen shows
-   **ROSETTA 0.28**: the extra code is read from the disk just after boot. After that you can switch disks to load
+   Rosetta+ slot on the Gotek, power off, power on again. Leave the slot selected until the
+   `ROSETTA+ READY` popup has shown and the ROSETTA ROM programs have loaded: the extra code is read from the disk
+   just after boot. After that you can switch disks to load
    samples (the REV menu's SAV writes to the boot disk, so only use it with Rosetta+ selected).
 7. **Back to stock**: select the stock slot and power-cycle.
 

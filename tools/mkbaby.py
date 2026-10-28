@@ -127,7 +127,7 @@ assert not BOOT_POPUP, "the 0FE4:F6B2 pad now holds the SysEx stub; the boot pop
 
 PATCHES = [
     # SAVE page, type "System": shown next to GO
-    (0x2F9CE, b"VERSION 2.00", f"ROSETTA {VERSION}".encode()),
+    (0x2F9CE, b"VERSION 2.00", f"ROSETTA+{VERSION}".encode()),
     # splash text (2 lines x 16, line 2 is 15 chars + FF terminator)
     (MSG, b"Searching for   AKAI SCSI disk ", f"ROSETTA OS v{VERSION}dragon was here".encode()),
     # menu flow: mode entry page-0 write -> far call MENU_SEG:0000 (LOAD/SAVE skip DISK/FLASHROM w/o flash)
@@ -180,7 +180,7 @@ PATCHES = [
     (lin(SEG_MAIN, HOOK), bytes(len(boot_hook())), boot_hook()),
 ] if BOOT_POPUP else []) + [
     # default program header name (Akai charset), 3 copies: id 01, kg ptr, name[12]
-    (off, akai("TEST PROGRAM"), akai(f"ROSETTA {VERSION}"))
+    (off, akai("TEST PROGRAM"), akai(f"ROSETTA+{VERSION}"))
     for off in (0x1629, 0xA0D3, 0x1EE88)
 ]
 
